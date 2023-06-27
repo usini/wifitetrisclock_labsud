@@ -23,6 +23,8 @@
 // Rename secrets.default.h to secrets.h
 #include "secrets.h"
 
+
+
 // ----------------------------
 // Standard Libraries - Already Installed if you have ESP32 set up
 // ----------------------------
@@ -116,6 +118,8 @@ String lastDisplayedAmPm = "";
 int text_offset = 0;
 
 const int y_offset = (panelResY / 2) - 6;
+
+#include "gif.h"
 
 void callback(char *topic, byte *payload, unsigned int length)
 {
@@ -255,6 +259,8 @@ void setup()
   tetris2.display = dma_display; // The "M" of AM/PM
   tetris3.display = dma_display; // The "P" or "A" of AM/PM
 
+
+
   // Attempt to connect to Wifi network:
   Serial.print("Connecting Wifi: ");
   Serial.println(ssid);
@@ -300,6 +306,9 @@ void setup()
   //tetris.setText("TRINITY");
   // tetris2.setText("");
   // Wait for the animation to finish
+
+ 
+
   while (!finishedAnimating)
   {
     delay(animationDelay);
