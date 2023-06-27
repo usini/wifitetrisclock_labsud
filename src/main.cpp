@@ -55,6 +55,7 @@
 #include <PubSubClient.h>
 WiFiClient espClient;
 PubSubClient client(espClient);
+void WiFiEvent(WiFiEvent_t event);
 // ----------------------------
 // Dependency Libraries - each one of these will need to be installed.
 // ----------------------------
@@ -275,6 +276,7 @@ void setup()
     Serial.print(".");
     delay(500);
   }
+  WiFi.onEvent(WiFiEvent);
 
   Serial.println("");
   Serial.println("WiFi connected");
@@ -440,3 +442,13 @@ void loop()
     animationDue = now + animationDelay;
   }
 }
+
+void WiFiEvent(WiFiEvent_t event) {
+  switch (event) {
+    case SYSTEM_EVENT_STA_DISCONNECTED:
+      Serial.println("Déconnexion du réseau WiFi");
+      ESP.restart(); // Redémarrer la carte ESP32
+      break;
+  }
+}
+
