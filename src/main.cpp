@@ -20,21 +20,13 @@
     Twitter: https://twitter.com/witnessmenow
  *******************************************************************/
 
-// Rename secrets.default.h to secrets.h
-#include "secrets.h"
-
-
-
-// ----------------------------
-// Standard Libraries - Already Installed if you have ESP32 set up
-// ----------------------------
-
-#include <WiFi.h>
-
 // ----------------------------
 // Additional Libraries - each one of these will need to be installed.
 // ----------------------------
+#include <Arduino.h>
 
+String timeString;
+#include <RTClib.h>
 #include <ESP32-HUB75-MatrixPanel-I2S-DMA.h>
 // This is the library for interfacing with the display
 
@@ -46,28 +38,6 @@
 // amimation
 // Can be installed from the library manager
 // https://github.com/toblum/TetrisAnimation
-
-#include <ezTime.h>
-// Library used for getting the time and adjusting for DST
-// Search for "ezTime" in the Arduino Library manager
-// https://github.com/ropg/ezTime
-
-#include <PubSubClient.h>
-WiFiClient espClient;
-PubSubClient client(espClient);
-void WiFiEvent(WiFiEvent_t event);
-// ----------------------------
-// Dependency Libraries - each one of these will need to be installed.
-// ----------------------------
-
-// Adafruit GFX library is a dependancy for the matrix Library
-// Can be installed from the library manager
-// https://github.com/adafruit/Adafruit-GFX-Library
-
-
-// Set a timezone using the following list
-// https://en.wikipedia.org/wiki/List_of_tz_database_time_zones
-#define MYTIMEZONE "Europe/Paris"
 
 // -------------------------------------
 // -------   Matrix Config   ------
@@ -106,7 +76,10 @@ TetrisMatrixDraw tetris(*dma_display);  // Main clock
 TetrisMatrixDraw tetris2(*dma_display); // The "M" of AM/PM
 TetrisMatrixDraw tetris3(*dma_display); // The "P" or "A" of AM/PM
 
-Timezone myTZ;
+RTC_DS3231 rtc;
+#include "usbcommands.h"
+#include "timeManager.h"
+
 unsigned long oneSecondLoopDue = 0;
 
 bool showColon = true;
@@ -116,47 +89,9 @@ bool displayIntro = false;
 String lastDisplayedTime = "";
 String lastDisplayedAmPm = "";
 
-int text_offset = 0;
+
 
 const int y_offset = (panelResY / 2) - 6;
-
-#include "gif.h"
-
-void callback(char *topic, byte *payload, unsigned int length)
-{
-  // handle message arrived
-  payload[length] = '\0';
-  String s = String((char*)payload);
-  int state = s.toInt();
-
-  Serial.print("STATE:");
-  Serial.println(state);
-  switch(state){
-    case 0:
-    Serial.println("Ferme");
-    text_offset = 15;
-    tetris2.setText("FERME");
-
-    break;
-    case 1:
-    Serial.println("Ouvert");
-    text_offset = 10;
-    tetris2.setText("OUVERT");
-    break;
-    case 2:
-    Serial.println("Ouvert Pro");
-    text_offset = 0;
-    tetris2.setText("OUVERTPRO");
-    break;
-    default:
-    Serial.println("Bug");
-    tetris2.setText("FERME");
-    break;
-  }
-  //finishedAnimating = true;
-}
-
-
 
 // This method is for controlling the tetris library draw calls
 void animationHandler()
@@ -233,6 +168,26 @@ void drawConnecting(int x = 0, int y = 0)
 void setup()
 {
   Serial.begin(115200);
+  serialInit();
+
+  if (!rtc.begin())
+  {
+    Serial.println("Couldn't find RTC");
+    Serial.flush();
+    while (1)
+      delay(10);
+  }
+
+  if (rtc.lostPower())
+  {
+    Serial.println("RTC lost power, let's set the time!");
+    // When time needs to be set on a new device, or after a power loss, the
+    // following line sets the RTC to the date & time this sketch was compiled
+    rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
+    // This line sets the RTC with an explicit date & time, for example to set
+    // January 21, 2014 at 3am you would call:
+    // rtc.adjust(DateTime(2014, 1, 21, 3, 0, 0));
+  }
 
   HUB75_I2S_CFG mxconfig(
       panelResX,  // Module width
@@ -261,113 +216,22 @@ void setup()
   tetris3.display = dma_display; // The "P" or "A" of AM/PM
 
 
-
-  // Attempt to connect to Wifi network:
-  Serial.print("Connecting Wifi: ");
-  Serial.println(ssid);
-
-  // Set WiFi to station mode and disconnect from an AP if it was Previously
-  // connected
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(ssid, password);
-
-  while (WiFi.status() != WL_CONNECTED)
-  {
-    Serial.print(".");
-    delay(500);
-  }
-  WiFi.onEvent(WiFiEvent);
-
-  Serial.println("");
-  Serial.println("WiFi connected");
-  Serial.print("IP address: ");
-  Serial.println(WiFi.localIP());
-
-  client.setServer(ip_mqtt, 1883);
-  client.setCallback(callback);
-
-  // "connecting"
-  drawConnecting(5, -6 + y_offset);
-
-  // Setup EZ Time
-  setDebug(INFO);
-  waitForSync();
-
-  Serial.println();
-  Serial.println("UTC:             " + UTC.dateTime());
-
-  myTZ.setLocation(F(MYTIMEZONE));
-  Serial.print(F("Time in your set timezone:         "));
-  Serial.println(myTZ.dateTime());
-
-  // "Powered By"
-  //drawIntro(6, -4 + y_offset);
-  //delay(2000);
-
-  // Start the Animation Timer
-  //tetris.setText("TRINITY");
-  // tetris2.setText("");
-  // Wait for the animation to finish
-
- 
-
-  while (!finishedAnimating)
-  {
-    delay(animationDelay);
-    animationHandler();
-  }
-  delay(2000);
+  animationHandler();
   finishedAnimating = false;
   displayIntro = false;
   tetris.scale = 2;
-  // tetris.setTime("00:00", true);
 }
 
 void setMatrixTime()
 {
-  String timeString = "";
-  String AmPmString = "";
-  if (twelveHourFormat)
-  {
-    // Get the time in format "1:15" or 11:15 (12 hour, no leading 0)
-    // Check the EZTime Github page for info on
-    // time formatting
-    timeString = myTZ.dateTime("g:i");
-
-    // If the length is only 4, pad it with
-    //  a space at the beginning
-    if (timeString.length() == 4)
-    {
-      timeString = " " + timeString;
-    }
-
-    // Get if its "AM" or "PM"
-    AmPmString = myTZ.dateTime("A");
-    if (lastDisplayedAmPm != AmPmString)
-    {
-      Serial.println(AmPmString);
-      lastDisplayedAmPm = AmPmString;
-      // Second character is always "M"
-      // so need to parse it out
-      tetris2.setText("M", forceRefresh);
-
-      // Parse out first letter of String
-      tetris3.setText(AmPmString.substring(0, 1), forceRefresh);
-    }
-  }
-  else
-  {
-    // Get time in format "01:15" or "22:15"(24 hour with leading 0)
-    timeString = myTZ.dateTime("H:i");
-  }
-
+  timeString = getTime();
   // Only update Time if its different
   if (lastDisplayedTime != timeString)
   {
-    Serial.println(timeString);
+    Serial.println("[⏲️TIME] - " + timeString);
     lastDisplayedTime = timeString;
     tetris.setTime(timeString, forceRefresh);
-
+    checkEvent();
     // Must set this to false so animation knows
     // to start again
     finishedAnimating = false;
@@ -388,42 +252,17 @@ void handleColonAfterAnimation()
   dma_display->flipDMABuffer();
 }
 
-void reconnect() {
-  // Loop until we're reconnected
-  while (!client.connected()) {
-    Serial.print("Attempting MQTT connection...");
-    // Create a random client ID
-    String clientId = "ESP32Client-";
-    clientId += String(random(0xffff), HEX);
-    // Attempt to connect
-    if (client.connect(clientId.c_str(),mqttuser, mqttpassword)) {
-      Serial.println("connected");
-      // ... and resubscribe
-      client.subscribe("labsud/common/isLabOpen");
-    } else {
-      Serial.print("failed, rc=");
-      Serial.print(client.state());
-      Serial.println(" try again in 5 seconds");
-      // Wait 5 seconds before retrying
-      delay(5000);
-    }
-  }
-}
-
 void loop()
 {
-
-  if(!client.connected()){
-    reconnect();
-  }
-  client.loop();
-
+  serialLoop();
   unsigned long now = millis();
   if (now > oneSecondLoopDue)
   {
     // We can call this often, but it will only
     // update when it needs to
     setMatrixTime();
+    checkEvent();
+
     showColon = !showColon;
 
     // To reduce flicker on the screen we stop clearing the screen
@@ -442,13 +281,3 @@ void loop()
     animationDue = now + animationDelay;
   }
 }
-
-void WiFiEvent(WiFiEvent_t event) {
-  switch (event) {
-    case SYSTEM_EVENT_STA_DISCONNECTED:
-      Serial.println("Déconnexion du réseau WiFi");
-      ESP.restart(); // Redémarrer la carte ESP32
-      break;
-  }
-}
-
